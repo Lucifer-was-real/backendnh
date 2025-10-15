@@ -1,57 +1,56 @@
-// The new, more robust server.js
+// The final, intelligent server.js
 
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 
 const app = express();
-// Render will set the port, so we make it flexible
 const port = process.env.PORT || 3000;
 
 app.use(cors());
 const upload = multer({ storage: multer.memoryStorage() });
 
-// The new, smarter parsing function
+// The new, intelligent parsing function
 function parseDataContent(data) {
     const lines = data.split('\n');
     const parsedData = [];
-    let currentSiteId = null;
-    let lineBuffer = ""; // Holds incomplete lines (like a split latitude)
+    const siteIdMap = new Map();
+    let currentFullSiteId = null;
 
-    for (let line of lines) {
-        // Step 1: Handle lines split across two parts
-        // If we have something in the buffer, add the current line to it.
-        if (lineBuffer) {
-            line = lineBuffer + " " + line.trim();
-            lineBuffer = ""; // Clear the buffer
+    // --- PASS 1: Find all long-form IDs and map them ---
+    for (const line of lines) {
+        const longIdMatch = line.trim().match(/^(I-KO-KLKT-ENB-(\w+))$/);
+        if (longIdMatch) {
+            const fullId = longIdMatch[1]; // e.g., "I-KO-KLKT-ENB-0132"
+            const shortId = longIdMatch[2]; // e.g., "0132"
+            siteIdMap.set(shortId, fullId);
+        }
+    }
+
+    // --- PASS 2: Parse the data using the map ---
+    for (const line of lines) {
+        // Check if the line is a short ID marker
+        const shortIdMatch = line.trim().match(/^([A-Z]?\d{3,4})$/);
+        if (shortIdMatch && siteIdMap.has(shortIdMatch[1])) {
+            // Look up the full ID from our map
+            currentFullSiteId = siteIdMap.get(shortIdMatch[1]);
+            continue; // Move to the next line, which contains the data
         }
 
-        // Check for lines that end with a latitude, indicating it might be split
-        if (line.trim().match(/(\d{2}\.\d+)$/)) {
-            lineBuffer = line.trim();
-            continue; // Skip to the next line to get the rest of the data
-        }
+        // If we don't have a valid site ID yet, skip
+        if (!currentFullSiteId) continue;
 
-        // Step 2: A more flexible Site ID check
-        const siteIdMatch = line.trim().match(/(^[A-Z]?\d{3,4}$)|(I-KO-KLKT-ENB-\w+)/);
-        if (siteIdMatch) {
-            currentSiteId = siteIdMatch[0].replace('I-KO-KLKT-ENB-', ''); // Keep only the number part for long IDs
-            continue;
-        }
-
-        if (!currentSiteId) continue;
-
-        // Step 3: More flexible regex to find all data parts
+        // Use the flexible regex to find data parts
         const latLongMatch = line.match(/(\d{2}\.\d+)\s*°?\s*(\d{2,3}\.\d+)/);
-        const angleMatch = line.match(/(\d+)\s*d(e|E)?g/i); // Matches deg, DEG, dg
-        const distanceMatch = line.match(/(\d+)\s*m/i); // Matches m, M
+        const angleMatch = line.match(/(\d+)\s*d(e|E)?g/i);
+        const distanceMatch = line.match(/(\d+)\s*m/i);
         const buildingMatch = line.match(/(B\d)/i);
 
         if (latLongMatch && angleMatch && distanceMatch) {
             parsedData.push({
-                siteId: currentSiteId,
+                siteId: currentFullSiteId, // Use the correct full ID
                 lat: latLongMatch[1],
-                long: latLongMatch[2].replace(/^0+/, ''), // Remove leading zeros
+                long: latLongMatch[2].replace(/^0+/, ''),
                 angle: angleMatch[1],
                 distance: distanceMatch[1],
                 building: buildingMatch ? buildingMatch[1].toUpperCase() : 'N/A',
