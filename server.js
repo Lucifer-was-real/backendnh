@@ -12,7 +12,7 @@ const port = process.env.PORT || 3000;
 // --- Initialize Vertex AI ---
 const vertex_ai = new VertexAI({
   project: process.env.GOOGLE_PROJECT_ID, // Your Google Cloud Project ID
-  location: 'asia-southeast1', // A common location
+  location: 'us-central1', // A common location
 });
 
 const model = 'gemini-1.5-flash-001'; // The model name
@@ -59,6 +59,7 @@ app.post('/upload', upload.single('dataFile'), async (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
 
 
 
