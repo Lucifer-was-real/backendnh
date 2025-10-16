@@ -12,7 +12,7 @@ const port = process.env.PORT || 3000;
 // --- Initialize the AI ---
 // Make sure you have your GEMINI_API_KEY in your Render environment variables
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
 
 app.use(cors());
 const upload = multer({ storage: multer.memoryStorage() });
@@ -79,4 +79,5 @@ app.post('/upload', upload.single('dataFile'), async (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
 
