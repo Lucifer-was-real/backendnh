@@ -1,65 +1,85 @@
-// The final server.js using the Vertex AI API
+// A robust, non-AI server for parsing any text file
 
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
-require('dotenv').config();
-const { VertexAI } = require('@google-cloud/vertexai');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- Initialize Vertex AI ---
-const vertex_ai = new VertexAI({
-  project: process.env.GOOGLE_PROJECT_ID, // Your Google Cloud Project ID
-  location: 'us-central1', // A common location
-});
-
-const model = 'gemini-1.5-flash-001'; // The model name
-
-const generativeModel = vertex_ai.preview.getGenerativeModel({
-  model: model,
-});
-
 app.use(cors());
 const upload = multer({ storage: multer.memoryStorage() });
 
-// --- The AI Parsing Function ---
-async function parseWithAI(text) {
-    const prompt = `
-        You are a highly intelligent data extraction engine...
-        // The detailed prompt from before remains exactly the same
-    `;
+// The intelligent, rule-based parsing function
+function parseDataContent(data) {
+    const lines = data.split('\n');
+    const parsedData = [];
+    const siteIdMap = new Map();
+    let currentFullSiteId = null;
 
-    const req = {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    };
-
-    try {
-        const result = await generativeModel.generateContent(req);
-        const response = result.response;
-        const jsonText = response.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-        return JSON.parse(jsonText);
-    } catch (error) {
-        console.error("Error with AI parsing:", error);
-        return [{ siteId: "Error", latitude: "Could not parse file", longitude: "", angle: "", distance: "", building: "" }];
+    // --- PASS 1: Find all long-form IDs and create a map ---
+    // This allows us to associate short IDs (like 0132) with their full names.
+    for (const line of lines) {
+        const longIdMatch = line.trim().match(/^(I-KO-KLKT-ENB-([\w\d]+))$/);
+        if (longIdMatch) {
+            const fullId = longIdMatch[1];
+            const shortId = longIdMatch[2];
+            siteIdMap.set(shortId, fullId);
+        }
     }
+
+    // --- PASS 2: Go through the file again to extract data for each ID ---
+    for (let line of lines) {
+        // First, clean up the line by removing any timestamps or chat prefixes
+        line = line.replace(/.*- Titli❤️:\s*/, '').trim();
+        if (!line || line.startsWith('<Media omitted>')) continue;
+
+        // Find a short Site ID (e.g., "0132" or "A123") at the start of a line
+        const shortIdMatch = line.match(/^\b([A-Z]?\d{3,4})\b/);
+        if (shortIdMatch) {
+            const shortId = shortIdMatch[1];
+            // If this short ID was in our map, use the full version
+            if (siteIdMap.has(shortId)) {
+                currentFullSiteId = siteIdMap.get(shortId);
+            } else {
+                // Otherwise, just use the short ID itself
+                currentFullSiteId = shortId;
+            }
+            continue; // Go to the next line, which should contain the data
+        }
+
+        if (!currentFullSiteId) continue; // Skip until we have a Site ID
+
+        // Use flexible patterns to find the data points, regardless of order
+        const latLongMatch = line.match(/(\d{2}\.\d+)\s*°?\s*(\d{2,3}\.\d+)/);
+        const angleDistanceMatch = line.match(/\b(\d{1,3})\b(?:[\s,]*deg)?(?:[\s,]+)(\d+)\s*m/i);
+        const buildingMatch = line.match(/(B\d)/i);
+        
+        if (latLongMatch && angleDistanceMatch) {
+            parsedData.push({
+                siteId: currentFullSiteId,
+                lat: latLongMatch[1],
+                long: latLongMatch[2].replace(/^0+/, ''),
+                angle: angleDistanceMatch[1],
+                distance: angleDistanceMatch[2],
+                building: buildingMatch ? buildingMatch[1].toUpperCase() : 'N/A',
+            });
+        }
+    }
+    return parsedData;
 }
 
-// The upload endpoint remains the same
-app.post('/upload', upload.single('dataFile'), async (req, res) => {
+
+// The upload endpoint
+app.post('/upload', upload.single('dataFile'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded.' });
     }
     const fileContent = req.file.buffer.toString('utf8');
-    const jsonData = await parseWithAI(fileContent);
+    const jsonData = parseDataContent(fileContent);
     res.json(jsonData);
 });
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
-
-
-
-
