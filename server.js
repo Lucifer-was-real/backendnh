@@ -1,74 +1,78 @@
-// The final, intelligent server.js
+// The final, universal server.js powered by an expert AI prompt
 
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
+require('dotenv').config(); // Loads the API key from the .env file
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// --- Initialize the AI ---
+// Make sure you have your GEMINI_API_KEY in your Render environment variables
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
 app.use(cors());
 const upload = multer({ storage: multer.memoryStorage() });
 
-// The new, intelligent parsing function
-function parseDataContent(data) {
-    const lines = data.split('\n');
-    const parsedData = [];
-    const siteIdMap = new Map();
-    let currentFullSiteId = null;
+// --- The AI Parsing Function with a More Powerful Prompt ---
+async function parseWithAI(text) {
+    const prompt = `
+        You are a highly intelligent data extraction engine. Your task is to analyze unstructured text from any source (like chat logs, notes, etc.) and extract specific data points.
+        The output MUST be a valid JSON array of objects. Each object represents a single data entry and must have these exact keys: "siteId", "latitude", "longitude", "angle", "distance", "building".
 
-    // --- PASS 1: Find all long-form IDs and map them ---
-    for (const line of lines) {
-        const longIdMatch = line.trim().match(/^(I-KO-KLKT-ENB-(\w+))$/);
-        if (longIdMatch) {
-            const fullId = longIdMatch[1]; // e.g., "I-KO-KLKT-ENB-0132"
-            const shortId = longIdMatch[2]; // e.g., "0132"
-            siteIdMap.set(shortId, fullId);
-        }
+        Follow these rules precisely:
+
+        1.  **Site ID Logic:**
+            - A 'Site ID' is the primary identifier. It can appear in several formats: a 4-digit number (e.g., "0937"), an alphanumeric code (e.g., "A123"), or a long-form ID (e.g., "I-KO-KLKT-ENB-0132").
+            - The data that follows a Site ID belongs to it until a new Site ID is found.
+            - **Crucially:** The text might provide a list of long-form IDs first. Later, a short 4-digit number is used to refer to one of them. You must correctly associate the data with the full long-form ID. For example, if "I-KO-KLKT-ENB-0132" is listed and later "0132" appears, all following data belongs to "I-KO-KLKT-ENB-0132".
+            - If a short ID appears that was not in the initial list, use the short ID itself as the "siteId".
+
+        2.  **Data Point Extraction:**
+            - "latitude" and "longitude" are pairs of decimal numbers (e.g., 22.601152 88.431620).
+            - "angle" is a number representing degrees, usually followed by "deg" or "DEG", but sometimes the unit is missing.
+            - "distance" is a number followed by "m".
+            - "building" is a code like "B1", "b2", etc. If not present for a data line, the value MUST be the string "N/A".
+            - The data points for a single entry can be on the same line, in any order.
+
+        3.  **Noise Reduction:**
+            - Ignore all irrelevant text, such as timestamps (e.g., "[02:44, 16/10/2025] Titli❤️:"), notes ("NEI DATA"), or system messages ("<Media omitted>").
+
+        4.  **Output Format:**
+            - Your entire response MUST be ONLY the JSON array. Do not include any introductory text, explanations, or markdown formatting like \`\`\`json.
+
+        Here is the text to analyze:
+        ---
+        ${text}
+        ---
+    `;
+
+    try {
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        // Clean up the AI's response to ensure it's valid JSON
+        const jsonText = response.text().replace(/```json|```/g, '').trim();
+        return JSON.parse(jsonText); // Convert the text to actual JSON
+    } catch (error) {
+        console.error("Error with AI parsing:", error);
+        // If the AI fails or returns invalid JSON, send back an error message in the correct format
+        return [{ siteId: "Error", latitude: "Could not parse file", longitude: "", angle: "", distance: "", building: "" }];
     }
-
-    // --- PASS 2: Parse the data using the map ---
-    for (const line of lines) {
-        // Check if the line is a short ID marker
-        const shortIdMatch = line.trim().match(/^([A-Z]?\d{3,4})$/);
-        if (shortIdMatch && siteIdMap.has(shortIdMatch[1])) {
-            // Look up the full ID from our map
-            currentFullSiteId = siteIdMap.get(shortIdMatch[1]);
-            continue; // Move to the next line, which contains the data
-        }
-
-        // If we don't have a valid site ID yet, skip
-        if (!currentFullSiteId) continue;
-
-        // Use the flexible regex to find data parts
-        const latLongMatch = line.match(/(\d{2}\.\d+)\s*°?\s*(\d{2,3}\.\d+)/);
-        const angleMatch = line.match(/(\d+)\s*d(e|E)?g/i);
-        const distanceMatch = line.match(/(\d+)\s*m/i);
-        const buildingMatch = line.match(/(B\d)/i);
-
-        if (latLongMatch && angleMatch && distanceMatch) {
-            parsedData.push({
-                siteId: currentFullSiteId, // Use the correct full ID
-                lat: latLongMatch[1],
-                long: latLongMatch[2].replace(/^0+/, ''),
-                angle: angleMatch[1],
-                distance: distanceMatch[1],
-                building: buildingMatch ? buildingMatch[1].toUpperCase() : 'N/A',
-            });
-        }
-    }
-    return parsedData;
 }
 
 // The upload endpoint remains the same
-app.post('/upload', upload.single('dataFile'), (req, res) => {
+app.post('/upload', upload.single('dataFile'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded.' });
     }
-
     const fileContent = req.file.buffer.toString('utf8');
-    const jsonData = parseDataContent(fileContent);
-
+    
+    // Call our new AI function
+    const jsonData = await parseWithAI(fileContent);
+    
     res.json(jsonData);
 });
 
