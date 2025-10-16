@@ -8,6 +8,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const port = process.env.PORT || 3000;
+console.log("Attempting to load API Key:", process.env.GEMINI_API_KEY);
 
 // --- Initialize the AI ---
 // Make sure you have your GEMINI_API_KEY in your Render environment variables
@@ -79,5 +80,6 @@ app.post('/upload', upload.single('dataFile'), async (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
 
 
