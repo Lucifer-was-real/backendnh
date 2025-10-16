@@ -15,7 +15,7 @@ const vertex_ai = new VertexAI({
   location: 'us-central1', // A common location
 });
 
-const model = 'gemini-1.0-pro'; // The model name
+const model = 'gemini-1.5-flash-001'; // The model name
 
 const generativeModel = vertex_ai.preview.getGenerativeModel({
   model: model,
@@ -59,3 +59,4 @@ app.post('/upload', upload.single('dataFile'), async (req, res) => {
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
